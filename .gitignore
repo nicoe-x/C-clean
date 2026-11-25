@@ -5,6 +5,7 @@ build/
 dist/
 *.spec
 .benchmark/
+.research/
 preview*.png
 assets/fluent/
 assets/*.png

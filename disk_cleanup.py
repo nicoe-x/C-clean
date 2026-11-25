@@ -22,7 +22,10 @@ PERSONAL_SUFFIXES = {'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.pdf', 
     '.ts', '.tsx', '.jsx', '.ipynb', '.sql', '.r', '.c', '.cpp', '.h', '.cs', '.go',
     '.rs', '.sh', '.ps1', '.bat', '.exe', '.dll', '.pyd', '.node', '.wasm'}
 PRIVATE_PARTS = {'credentials', 'auth', 'sessions', 'session storage', 'local storage',
-                 'network', 'history', '.ssh', '.aws', '.azure', '.gnupg'}
+                 'network', 'history', 'indexeddb', 'databases', 'skills', 'plugins',
+                 'extensions', 'workspace', 'workspaces', 'memory', 'memories',
+                 'artifacts', 'outputs', 'documents', 'downloads',
+                 '.ssh', '.aws', '.azure', '.gnupg'}
 CACHE_SUFFIXES = {'', '.cache', '.dat', '.data', '.body', '.vsix', '.whl', '.tmp',
                   '.temp', '.log', '.idx', '.index', '.block', '.ldb', '.sst'}
 PRIVATE_NAMES = {'id_rsa', 'id_ed25519', 'id_ecdsa', 'authorized_keys', 'known_hosts',

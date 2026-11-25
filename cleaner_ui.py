@@ -44,6 +44,7 @@ class App:
         self.theme_preference=preferences['theme']
         self.favorites = set(preferences['favorites'])
         self.results, self.selected = [], set()
+        self.analysis_paths = []
         self.events = queue.Queue()
         self.stop = threading.Event()
         self.busy = self.valid_scan = False
@@ -172,6 +173,7 @@ class App:
         self.export_button.pack(side='right', padx=8)
         self.details_button=Button(toolbar,text='详情',command=self.open_detail,state='disabled')
         self.details_button.pack(side='right',padx=8)
+        Button(toolbar,text='支持列表',command=self.show_support).pack(side='right',padx=8)
         filters = ttk.Frame(main)
         filters.pack(fill='x', pady=(0, 10))
         ttk.Label(filters, text='搜索 ', style='Hint.TLabel').pack(side='left')
@@ -340,9 +342,14 @@ class App:
         self.cancel_button.configure(text='停止')
         self.status.set('扫描中')
         days = int(self.days.get())
+        analysis_paths = tuple(self.analysis_paths)
         def worker():
             try:
                 targets=discover()
+                if analysis_paths:
+                    from cleaner import Target
+                    from agent_discovery import partition_targets, existing
+                    targets = partition_targets(targets + [Target('自选目录', '应用数据（仅统计）', p, False) for p in analysis_paths if existing(p)])
                 results=scan_many(targets,days,self.stop,
                     lambda done,total,target:self.events.put(('progress',(done,total,target.app))))
                 cancelled = self.stop.is_set()
@@ -351,6 +358,26 @@ class App:
             except Exception as exc:
                 self.events.put(('error', str(exc)))
         threading.Thread(target=worker, daemon=True).start()
+
+    def show_support(self):
+        from agent_support_ui import show_support
+        show_support(self)
+
+    def add_analysis_directory(self, parent):
+        if self.busy or self.disk_panel.busy: return
+        name = filedialog.askdirectory(parent=parent, title='添加分析目录（仅统计）', mustexist=True)
+        if not name: return
+        from agent_discovery import existing
+        path = Path(name)
+        if not existing(path):
+            messagebox.showinfo('无法添加', '请选择 C 盘中的普通目录。', parent=parent)
+            return
+        if path not in self.analysis_paths:
+            self.analysis_paths.append(path)
+            self.valid_scan = False
+            self.selected.clear()
+            self.status.set('已添加，重新扫描')
+            self.update_metrics()
 
     def sort_by(self, key):
         if key == 'selected':

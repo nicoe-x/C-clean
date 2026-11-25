@@ -17,10 +17,6 @@ from datetime import datetime
 CACHE_NAMES = ('Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'DawnGraphiteCache',
                'DawnWebGPUCache', 'GPUPersistentCache', 'GrShaderCache', 'ShaderCache',
                'CachedData', 'CachedExtensionVSIXs')
-APPS = ('Codex', 'Claude', 'ChatGPT', 'Cursor', 'Windsurf', 'Antigravity', 'Code',
-        'Code - Insiders', 'Trae', 'Trae CN', 'CodeBuddy', 'CodeBuddyExtension',
-        'Cherry Studio', 'cherry-studio', 'cline', 'Roo Code', 'Continue',
-        'LM Studio', 'lm-studio', 'ollama app.exe')
 REPARSE = getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400)
 
 
@@ -47,6 +43,7 @@ class Target:
     kind: str
     path: Path
     cleanable: bool = True
+    excluded: tuple[Path, ...] = ()
 
 
 @dataclass
@@ -79,6 +76,9 @@ class Advice:
 
 def advice(result: Result, days: int = 7) -> Advice:
     if not result.target.cleanable:
+        if '模型' not in result.target.kind:
+            return Advice('建议保留', '可能包含会话、配置、技能、工作文件或运行时，仅统计占用。',
+                          '只清理独立列出的缓存和日志，保留此目录中的应用数据。', 4)
         return Advice('建议保留', '这是模型数据，不是普通临时缓存；工具仅统计，不提供删除。',
                       '删除模型会影响离线使用，并可能需要重新下载。', 4)
     if not result.eligible:
@@ -120,60 +120,17 @@ def deduplicate(targets: list[Target]) -> list[Target]:
 
 
 def discover() -> list[Target]:
-    home = Path.home()
-    roaming = Path(os.environ.get('APPDATA', str(home / 'AppData/Roaming')))
-    local = Path(os.environ.get('LOCALAPPDATA', str(home / 'AppData/Local')))
-    roots: list[tuple[str, Path]] = []
-    for base in (roaming, local):
-        roots.extend((app, base / app) for app in APPS)
-    roots.extend((name, local / 'OpenAI' / name) for name in ('Codex', 'ChatGPT'))
-    # Store builds keep Electron data under a package's LocalCache directory.
-    packages = local / 'Packages'
-    try:
-        for package in packages.iterdir():
-            if package.name.lower().startswith(('openai.', 'anthropic.', 'claude')) and safe_chain(package):
-                for prefix in ('LocalCache/Roaming', 'LocalCache/Local', 'RoamingState'):
-                    for app in ('Codex', 'ChatGPT', 'Claude'):
-                        roots.append((app, package / prefix / app))
-    except OSError:
-        pass
-    expanded = []
-    for app, root in roots:
-        expanded.append((app, root))
-        # Known Electron/WebView containers, never search the entire C drive.
-        expanded.extend((app, root / suffix) for suffix in
-                        ('web/Codex', 'web/Codex/Default', 'web/ChatGPT', 'web/ChatGPT/Default',
-                         'EBWebView/Default', 'EBWebView/Profile 1'))
-        partitions = root / 'Partitions'
-        try:
-            if safe_chain(partitions):
-                expanded.extend((app, p) for p in partitions.iterdir() if p.is_dir() and safe_chain(p))
-        except OSError:
-            pass
-    targets = []
-    for app, root in expanded:
-        targets.extend(Target(app, '渲染 / 下载缓存', root / name) for name in CACHE_NAMES)
-        targets.append(Target(app, '日志（手动选择）', root / 'logs'))
-    targets.extend([
-        Target('Claude Code', '日志（手动选择）', home / '.claude/debug'),
-        Target('Codex CLI', '日志（手动选择）', home / '.codex/log'),
-        Target('Ollama', '模型（仅统计）', home / '.ollama/models', False),
-        Target('Hugging Face', '模型（仅统计）', home / '.cache/huggingface/hub', False),
-        Target('Whisper', '模型（仅统计）', home / '.cache/whisper', False),
-        Target('LM Studio', '模型（仅统计）', home / '.lmstudio/models', False),
-    ])
-    unique = {}
-    for t in targets:
-        if on_c(t.path) and t.path.is_dir() and safe_chain(t.path):
-            unique[str(t.path).casefold()] = t
-    return deduplicate(list(unique.values()))
+    from agent_discovery import discover_agents
+    return discover_agents()
 
 
 def scan(target: Target, days: int, stop: threading.Event) -> Result:
     from fast_fs import Directory
+    from disk_cleanup import protected_file
     result=Result(target)
     cutoff=time.time_ns()-days*86400*1_000_000_000
     pending=[target.path]
+    excluded={str(p).casefold() for p in target.excluded}
     anchor=None
     while pending and not stop.is_set():
         folder=pending.pop()
@@ -186,11 +143,14 @@ def scan(target: Target, days: int, stop: threading.Event) -> Result:
                     if entry.attrs & REPARSE:
                         result.skipped+=1
                     elif entry.is_dir:
-                        pending.append(Path(entry.path))
+                        if str(entry.path).casefold() not in excluded:
+                            pending.append(Path(entry.path))
                     else:
                         result.size+=entry.size
                         result.count+=1
-                        if target.cleanable and entry.modified<cutoff:
+                        if (target.cleanable and entry.modified<cutoff
+                                and not entry.attrs & (1|2|4)
+                                and not protected_file(Path(entry.path), target.path)):
                             result.eligible.append(Entry(Path(entry.path),entry.size,entry.modified))
         except OSError:
             result.skipped+=1
@@ -212,6 +172,7 @@ def scan_many(targets,days,stop,progress=None):
 
 
 def clean(results: list[Result], stop: threading.Event) -> dict:
+    from disk_cleanup import protected_file
     # Re-discover so callers cannot turn an arbitrary path into a deletion target.
     allowed = {str(t.path).casefold() for t in discover() if t.cleanable}
     report = {'deleted_files': 0, 'deleted_bytes': 0, 'skipped_files': 0, 'errors': []}
@@ -224,12 +185,15 @@ def clean(results: list[Result], stop: threading.Event) -> dict:
             if stop.is_set():
                 return report
             try:
-                if not entry.path.is_relative_to(root) or not safe_chain(entry.path):
+                if (not entry.path.is_relative_to(root) or not safe_chain(entry.path)
+                        or protected_file(entry.path, root)):
                     report['skipped_files'] += 1
                     continue
                 current = entry.path.stat()
                 # A running app may have updated the file since the scan.
-                if not stat.S_ISREG(current.st_mode) or current.st_size != entry.size or current.st_mtime_ns != entry.modified:
+                if (not stat.S_ISREG(current.st_mode) or current.st_size != entry.size
+                        or current.st_mtime_ns != entry.modified or current.st_nlink != 1
+                        or getattr(current, 'st_file_attributes', 0) & (1|2|4|REPARSE)):
                     report['skipped_files'] += 1
                     continue
                 entry.path.unlink()
@@ -296,7 +260,7 @@ def main():
     else:
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('LocalTools.Clearspace.5')
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('LocalTools.Clearspace.6')
         except (AttributeError, OSError):
             pass
         app = App()
@@ -330,10 +294,13 @@ def main():
                 app.theme_controller.set_mode('light')
                 theme_ok = theme_ok and app.theme_controller.effective == 'light'
                 app.theme_controller.set_mode(original_mode)
+                from agent_catalog import products
                 save_report({'ok': app.valid_scan and disk_ok and theme_ok, 'frozen': bool(getattr(sys, 'frozen', False)),
                              'gui': True, 'icon_loaded': 'logo-48' in app.images,
                              'disk_analysis_self_test': disk_ok,
                              'theme_switch_self_test': theme_ok,
+                             'catalog_products': len(products()),
+                             'support_list_ui': hasattr(app, 'show_support'),
                              'global_cleanup_ui': hasattr(app.disk_panel,'cleanup'),
                              'global_cleanup_starts_unselected': not app.disk_panel.cleanup.selected,
                              'disk': app.disk_text.get(), 'apps': list(app.app_box['values']),

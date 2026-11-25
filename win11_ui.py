@@ -60,6 +60,7 @@ def background(master):
 def icon_for(text):
     for prefix,name in (('全选','select'),('推荐项','select'),('扫描','scan'),('停止','stop'),
         ('取消选择','clear'),('预览','preview'),('刷新','refresh'),('详情','info'),
+        ('支持列表','info'),('添加目录','folder'),
         ('导出','export'),('记录','report'),('存储','settings'),('复制','copy'),
         ('收藏','bookmark'),('☆','bookmark'),('★','bookmark'),('选当前','select'),
         ('上一','left'),('下一','right'),('删除','trash'),('取消','close'),

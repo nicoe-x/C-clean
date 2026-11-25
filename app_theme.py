@@ -79,6 +79,8 @@ class ThemeController:
         s.configure('White.TLabel',background=p['surface'],foreground=p['text'])
         s.configure('TNotebook',borderwidth=0,bordercolor=p['bg'],lightcolor=p['bg'],darkcolor=p['bg'])
         s.configure('TEntry',fieldbackground=p['surface'],foreground=p['text'],insertcolor=p['text'],selectbackground=p['selection'],selectforeground=p['selection_text'])
+        s.map('TEntry',fieldbackground=[('readonly',p['surface']),('disabled',p['field'])],
+              foreground=[('disabled',p['disabled']),('readonly',p['text'])])
         s.configure('TCombobox',fieldbackground=p['surface'],foreground=p['text'],selectbackground=p['selection'],selectforeground=p['text'])
         s.map('TCombobox',foreground=[('disabled',p['disabled']),('readonly',p['text'])],fieldbackground=[('readonly',p['surface'])])
         s.configure('Treeview',background=p['surface'],fieldbackground=p['surface'],foreground=p['text'])
