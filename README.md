@@ -2,7 +2,7 @@
 
 Windows 缓存清理与 C 盘空间分析工具。
 
-[下载 Windows 版](https://github.com/nicoe-x/C-clean/releases/latest) · 下载 `Clearspace-5.exe` 后双击运行，无需安装 Python。
+[下载 Windows 版](https://github.com/nicoe-x/C-clean/releases/latest) · 下载 `Clearspace-6.exe` 后双击运行，无需安装 Python。
 
 ## 功能
 
