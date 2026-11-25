@@ -1,0 +1,11 @@
+__pycache__/
+reports/
+.build-venv/
+build/
+dist/
+*.spec
+.benchmark/
+preview*.png
+assets/fluent/
+assets/*.png
+assets/app.ico
